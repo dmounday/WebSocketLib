@@ -6,6 +6,8 @@
 //
 #include "Config.h"
 namespace asio_ws{
+// 
+std::string emptyStr{""};
 
 void Config::InitializeConfig(std::ifstream& fin) {
   std::string line;
@@ -25,13 +27,16 @@ void Config::InitializeConfig(std::ifstream& fin) {
   }
 }
 
+// return pointer to string associated with key.
+// Return pointer to empty string if key not found.
 const std::string*
 Config::Get(const char* key)const {
   auto it = config.find(key);
   if ( it != config.end())
     return &it->second;
-  return nullptr;
+  return &emptyStr;
 }
+// return value of key or 0.
 int Config::GetInt(const char* key)const {
   auto p = Get(key);
   if ( p )
