@@ -305,9 +305,9 @@ class websocket_session {
     boost::ignore_unused(bytes_transferred);
 
     // This indicates that the websocket_session was closed
-    if (ec == websocket::error::closed)
+    if (ec == websocket::error::closed ||
+        ec == net::ssl::error::stream_truncated)
       return;
-
     if (ec)
       return derived().wsDope()->failed_(ec, "read");
     // Call message handler at library user level.
@@ -316,7 +316,7 @@ class websocket_session {
          static_cast<unsigned char*>(buffer_.data().data()), buffer_.size());
     // Send reply if one is returned from user level. 
     if ( env.message ) {
-      PLOG(plog::debug) << "async_reply";
+      PLOG(plog::debug) << "async_write - user message.";
       derived().ws().text(derived().ws().got_text()); 
       derived().ws().async_write(
         buffer_.data(),
@@ -325,7 +325,6 @@ class websocket_session {
             derived().shared_from_this())); 
     }
     do_read();
-
   }
 
   void
@@ -333,7 +332,8 @@ class websocket_session {
       beast::error_code ec,
       std::size_t bytes_transferred) {
     boost::ignore_unused(bytes_transferred);
-
+    if (ec == net::ssl::error::stream_truncated)
+      return;
     if (ec)
       return derived().wsDope()->failed_(ec, "write");
   }
@@ -353,7 +353,6 @@ class websocket_session {
   }
 
   void Send(const char* msg, const size_t lth){
-    std::cout << "websocket::Send()";
     derived().ws().text(derived().ws().got_text());
     derived().ws().async_write(
         boost::asio::buffer(msg, lth),
@@ -414,6 +413,9 @@ class ssl_websocket_session
   }
   std::shared_ptr<WSDope> wsDope(){
     return ws_dope_;
+  }
+  ~ssl_websocket_session(){
+    PLOG(plog::debug) << "ssl_websocket_session dtor\n";
   }
 };
 
@@ -586,16 +588,16 @@ class http_session {
 
     // See if it is a WebSocket Upgrade
     auto msg = parser_->get();
-    std::cout << "Parsed Msg: " << msg;
+    PLOG(plog::debug) << "Parsed Msg: " << msg;
     if (websocket::is_upgrade(msg)) {
       // verify WebSocket path
-      std::cout << "target: " << msg.target() << '\n';
+      PLOG(plog::debug) << "target: " << msg.target();
       auto path = *ws_dope_->ws_path_();
       if ( msg.target() != *ws_dope_->ws_path_()) {
         auto ec =boost::system::errc::make_error_code(boost::system::errc::permission_denied);
         ws_dope_->failed_(ec, "WebSocket path");
         return;
-      } else {
+      }
       // Disable the timeout.
       // The websocket::stream uses its own timeout settings.
       beast::get_lowest_layer(derived().stream()).expires_never();
@@ -605,7 +607,6 @@ class http_session {
       return make_websocket_session(
           derived().release_stream(),
           parser_->release(), ws_dope_);
-      }
     }
     /*
     // Send the response
@@ -680,6 +681,7 @@ class plain_http_session
   void
   do_eof() {
     // Send a TCP shutdown
+    PLOG(plog::debug) << "do_eof() shutdown";
     beast::error_code ec;
     stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
 
@@ -702,12 +704,18 @@ class ssl_http_session
       beast::tcp_stream&& stream,
       ssl::context& ctx,
       beast::flat_buffer&& buffer,
-      std::shared_ptr<WSDope> const ws_dope)
+      std::shared_ptr<WSDope> const& ws_dope)
       : http_session<ssl_http_session>(
             std::move(buffer),
             ws_dope),
         stream_(std::move(stream), ctx),
-        ws_dope_{ws_dope} {
+        ws_dope_{ws_dope}
+    {
+      PLOG(plog::debug) << "ctor ssl_http_sesson";
+     }
+
+  ~ssl_http_session(){
+    PLOG(plog::debug) << "dtor ssl_http_session";
   }
 
   // Start the session
@@ -715,7 +723,7 @@ class ssl_http_session
   run() {
     // Set the timeout.
     beast::get_lowest_layer(stream_).expires_after(std::chrono::seconds(30));
-
+    PLOG(plog::debug) << "ssl handshake";
     // Perform the SSL handshake
     // Note, this is the buffered version of the handshake.
     stream_.async_handshake(
@@ -756,6 +764,7 @@ class ssl_http_session
   on_handshake(
       beast::error_code ec,
       std::size_t bytes_used) {
+    PLOG(plog::debug) << "http session ssl on_handshake";
     if (ec)
       return ws_dope_->failed_(ec, "handshake");
 
@@ -790,7 +799,9 @@ class detect_session : public std::enable_shared_from_this<detect_session> {
       std::shared_ptr<WSDope> const ws_dope)
       : stream_(std::move(socket)), ctx_(ctx), ws_dope_(ws_dope) {
   }
-
+  ~detect_session(){
+    PLOG(plog::debug) << "dtor detect_session";
+  }
   // Launch the detector
   void
   run() {
@@ -850,7 +861,8 @@ listener::listener(
     ssl::context& ctx,
     tcp::endpoint endpoint,
     std::shared_ptr<WSDope> const ws_dope)
-    : ioc_(ioc), ctx_(ctx), acceptor_(net::make_strand(ioc)), ws_dope_(ws_dope) {
+    : ioc_(ioc), ctx_(ctx), acceptor_(net::make_strand(ioc)), ws_dope_(ws_dope)
+ {
   beast::error_code ec;
 
   // Open the acceptor

@@ -20,6 +20,9 @@ FetchContent_MakeAvailable( plog )
 
 set(SRC_FILE_LIST  src/ws_client.cpp
                   src/ws_serverlib.cpp
+                  src/ws_client_io.cpp
+                  src/ws_ssl_client.cpp
+                  src/ws_tcp_client.cpp
 )
 
 add_library( WebSocketLib STATIC ${SRC_FILE_LIST})

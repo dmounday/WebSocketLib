@@ -12,6 +12,7 @@
 #include <sstream>
 
 #include "boost/asio.hpp"
+#include "boost/asio/ssl.hpp"
 
 #include "ws_client.h"
 
@@ -29,7 +30,7 @@ class ClientUser: std::enable_shared_from_this<ClientUser> {
   std::string USP_EP_Ext_;
 public:
   ClientUser(boost::asio::io_context& ioc, std::string& agentEndPt,
-              const char* caFile ):
+              const std::string* caFile ):
      timer_{ioc}
   {
     options_.emplace_back(std::make_pair(http::field::sec_websocket_protocol, &USP_Proto));
@@ -40,9 +41,9 @@ public:
     MsgHandler handler = std::bind(&ClientUser::MsgHandlerFunc, this, std::placeholders::_1, std::placeholders::_2);
      
     client_ = std::make_shared<WS_Client>(ioc, ready, failed, handler, options_);
-    //if ( path ){
-     // client_->SetTLS(SSL_VERIFY_PEER, &std::string{caFile});
-    //}
+    if ( caFile ){
+     client_->SetTLS(0, caFile);
+    }
     
   }
 
@@ -70,10 +71,12 @@ public:
   void WSFailed(const boost::system::error_code& ec, const std::string& msg){
     std::cout << "Failed: " << ec.message() << ": " << msg << '\n';
   }
-  const char* reply{"Msg received."};
+  const char* reply{"Client ACK of message from server."};
 
   void MsgHandlerFunc(const char* msg, std::size_t lth){
-    std::cout << '>' << msg << "<\n";
+    std::cout << "Rcvd Msg lth:" << lth << '>';
+    for(auto i=0; i< lth; ++i) std::cout << *(msg+i);
+    std::cout << "<\n";
     /* remove to enable client to send messages and wait replies.
     timer_.expires_from_now(std::chrono::seconds(5));
     timer_.async_wait( std::bind( &ClientUser::OnWait,
@@ -110,8 +113,11 @@ int main(int argc, char* argv[]){
   std::string host{argv[1]};
   std::string port{argv[2]};
   std::string path{argv[3]};
+  std::string caPath;
+  if (argc > 4)
+    caPath = std::string{argv[4]};
   std::string endPoint{"self::gs-agent-01"};  
-  auto libUser = std::make_shared<asio_ws::ClientUser>(ioc, endPoint, argc>4? argv[4]: nullptr);
+  auto libUser = std::make_shared<asio_ws::ClientUser>(ioc, endPoint, argc>4? &caPath: nullptr);
 
   libUser->StartClient(host, port, path);
   ioc.run();

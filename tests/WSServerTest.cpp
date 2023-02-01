@@ -25,8 +25,11 @@ class WebSocketServer {
   boost::asio::steady_timer timer_;
   std::shared_ptr<listener> server_;
   std::string ws_path_;
+  std::string cert_path_;
+  std::string key_path_;
   std::string web_socket_ext_; // sec_web_socket_extensions for USP.
-  WebSocketSendFunc send_; 
+  WebSocketSendFunc send_;
+  ssl::context ctx{ssl::context::tlsv12_server};
 
   const std::string* WSPath() {
     PLOG(plog::debug) << ws_path_;
@@ -40,12 +43,14 @@ class WebSocketServer {
 
   void error_callback(const boost::system::error_code& ec, const std::string& what) {
     PLOG(plog::error) << ec.message() << ": " << what;
+    timer_.cancel();
     return;
   }
 
   Envelope msg_handler_func(const unsigned char* msg, size_t lth) {
-    PLOG(plog::debug);
-    std::cout << msg;
+    PLOG(plog::debug) << "lth: "<< lth;
+    for ( auto i=0; i< lth; ++i ) std::cout << *(msg+i);
+    std::cout << '\n';
     return Envelope{nullptr, nullptr};
   }
 
@@ -88,7 +93,7 @@ class WebSocketServer {
         timer_.async_wait(std::bind(&WebSocketServer::OnWait, this, std::placeholders::_1));
       return;
     }
-    std::cout << "Timer canceled\n";
+    PLOG(plog::debug) << "Timer canceled\n";
   }
 
  public:
@@ -100,8 +105,8 @@ class WebSocketServer {
 
     ws_path_ = *cfg.Get("ws_path");
     PLOG(plog::info) << "ws_path=" << ws_path_;
-    bool useSSL = *cfg.Get("encryption") == "true";
-    PLOG(plog::info) << "encryption=" << useSSL;
+    cert_path_ = *cfg.Get("server-cert-path");
+    key_path_ = *cfg.Get("server-key-path");
 
     // Setup the callback and options address.
     auto ws_dope = std::make_shared<asio_ws::WSDope>(
@@ -115,7 +120,16 @@ class WebSocketServer {
     auto const port = static_cast<unsigned short>(cfg.GetInt("port"));
     PLOG(plog::debug) << "host: " << host << " port: " << port;
     auto const address = net::ip::make_address(host);
-    ssl::context ctx{ssl::context::tlsv12};
+    boost::system::error_code ec;
+    ctx.use_certificate_file(cert_path_, ssl::context_base::pem, ec);
+    if ( ec ){
+      PLOG(plog::error)  << "Certificate file error: " << ec.message();
+    }
+    ctx.use_private_key_file(key_path_, ssl::context_base::pem, ec);
+    if ( ec ){
+      PLOG(plog::error) << "Server Key: " << ec.message();
+    }
+    
     server_ = std::make_shared<asio_ws::listener>(
           ioc,
           ctx,

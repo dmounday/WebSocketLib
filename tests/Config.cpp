@@ -21,7 +21,7 @@ void Config::InitializeConfig(std::ifstream& fin) {
       p = line.find_first_not_of(" =", p);
       if (p != std::string::npos) {
         config[key] = line.substr(p, line.length() - p);  // add to map
-        std::cout << key << '=' << config[key] << '\n';
+        //std::cout << key << '=' << config[key] << '\n';
       }
     }
   }
